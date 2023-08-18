@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -51,15 +52,25 @@ func main() {
 // 	defer ticker.Stop()
 // }
 
+func getStateMutex() *sync.RWMutex {
+	mux := &sync.RWMutex{}
+	return mux
+}
+
 func barWorker(bar *bar) {
+	mux := getStateMutex()
 	for {
 		select {
 		case dish := <-bar.incomingFromKitchen:
+			mux.Lock()
 			bar.quantityRemainingTapas[dish]++
+			mux.Unlock()
 			fmt.Println("Dish (", dish, ") has been produced by a chef:", bar.quantityRemainingTapas)
 		case dish := <-bar.incomingFromConsumers:
 			if bar.quantityRemainingTapas[dish] > 0 {
+				mux.Lock()
 				bar.quantityRemainingTapas[dish]--
+				mux.Unlock()
 				fmt.Println("Dish (", dish, ") has been consumed by a consumer")
 			}
 			if bar.quantityRemainingTapas[dish] <= 0 {
@@ -96,12 +107,15 @@ func chefWorker(chef *chef) {
 
 func getRandomTapas(b *bar, isConsumer bool) dish { // Generate a random tapas from the initialAmounts map
 	tapasList := []dish{}
+	mux := getStateMutex()
+	mux.RLock()
 	for d := range b.quantityRemainingTapas {
 		if b.quantityRemainingTapas[d] == 0 && isConsumer {
 			continue
 		}
 		tapasList = append(tapasList, d)
 	}
+	mux.RUnlock()
 
 	randIndex := rand.Intn(len(tapasList))
 	return dish(tapasList[randIndex])
